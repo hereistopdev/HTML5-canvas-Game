@@ -37,6 +37,12 @@
         set_clear(arr);
         for (var n = 0, max = source.length; n < max; n++) arr.push(source[n]);
       }
+      function p2t(n) {
+        return Math.floor(n / TILE);
+      } // pixel-to-tile conversion
+      function t2p(n) {
+        return n * TILE;
+      } // tile-to-pixel conversion
 
       //v => 0: empty, 1: wall;
       function makeTileMap(w, h, v) {
@@ -78,18 +84,126 @@
       var myGameArea = {
         canvas: document.createElement("canvas"),
         walls: [],
+        cells: [],
+        cell: function (x, y) {
+          return this.cells[p2t(x) + p2t(y) * boardwidth];
+        },
+        overlappingCells: function (
+          x,
+          y,
+          w = myGamePiece.tile,
+          h = myGamePiece.tile
+        ) {
+          console.log(this.tile, w, h);
+          var cells = [];
+
+          var nx = Math.floor(x / TILE);
+          var ny = Math.floor(y / TILE);
+          for (let i = nx; i <= Math.floor((x + w - 1) / TILE); i++)
+            for (let j = ny; j <= Math.floor((y + h - 1) / TILE); j++) {
+              // console.log(nx, ny, i, j);
+              set_add(cells, this.cells[i + j * boardwidth]);
+            }
+          // console.log(nx, ny);
+
+          // var nx = (x % TILE) + w > TILE ? 1 : 0, // overlap right ?
+          //   ny = (y % TILE) + h > TILE ? 1 : 0; // overlap below ?
+
+          // set_add(cells, this.cell(x, y));
+          // if (nx > 0) set_add(cells, this.cell(x + TILE, y));
+          // if (ny > 0) set_add(cells, this.cell(x, y + TILE));
+          // if (nx > 0 && ny > 0) set_add(cells, this.cell(x + TILE, y + TILE));
+
+          return cells;
+        },
+        occupy: function (x, y, entity) {
+          // always move, assume caller took care to avoid collisions
+          entity.x = x;
+          entity.y = y;
+
+          var before = entity.cells,
+            after = this.overlappingCells(x, y, entity.w, entity.h),
+            c,
+            cell;
+
+          // remove object from previous cells that are no longer occupied
+          for (c = 0; c < before.length; c++) {
+            cell = before[c];
+            if (!set_contains(after, cell)) set_remove(cell.occupied, entity);
+          }
+
+          // and add object to new cells that were not previously occupied
+          for (c = 0; c < after.length; c++) {
+            cell = after[c];
+            if (!set_contains(before, cell)) set_add(cell.occupied, entity);
+          }
+
+          // and remember for next time
+          set_copy(before, after);
+
+          return entity;
+        },
+        occupied: function (x, y, w = playerTile, h = playerTile, ignore) {
+          var cells = this.overlappingCells(x, y),
+            checked = [], // avoid checking against the same entity multiple times (if that entity spans multiple cells)
+            c,
+            cell,
+            e,
+            entity;
+
+          console.log("Cells->", cells);
+
+          for (c = 0; c < cells.length; c++) {
+            cell = cells[c];
+            if (cell && cell.wall) return true;
+          }
+
+          //   // otherwise, check against each entity that currently occupies that cell
+          //   for (e = 0; e < cell.occupied.length; e++) {
+          //     entity = cell.occupied[e];
+          //     if (entity != ignore && !set_contains(checked, entity)) {
+          //       set_add(checked, entity);
+          //       if (overlap(x, y, w, h, entity.x, entity.y, entity.w, entity.h))
+          //         return entity;
+          //     }
+          //   }
+          // }
+
+          return false;
+        },
+        trymove: function (entity, dir, speed) {
+          var collision,
+            pos = {};
+          pos.x = entity.x + (isLeft(dir) ? -speed : isRight(dir) ? speed : 0);
+          pos.y = entity.y + (isUp(dir) ? -speed : isDown(dir) ? speed : 0);
+          collision = this.occupied(pos.x, pos.y, entity.w, entity.h, entity);
+          if (!collision) {
+            this.occupy(pos.x, pos.y, entity);
+          }
+          return collision;
+        },
         drawmap: function (tilemap, w, h) {
           for (let x = 0; x < w; x++) {
             for (let y = 0; y < h; y++) {
-              if (tilemap[x * w + y] >= 1) {
+              const type = tilemap[x + y * w];
+              if (type >= 1) {
                 this.walls.push({
                   x: x,
                   y: y,
-                  type: tilemap[x * w + y],
+                  type: type,
                 });
+                for (let i = 0; i < type; i++)
+                  for (let j = 0; j < type; j++)
+                    this.cells[x + i + (y + j) * w] = {
+                      wall: true,
+                      px: x + i,
+                      py: y + j,
+                      type: type,
+                    };
               }
             }
           }
+          // console.log(this.cells);
         },
         drawwalls: function () {
           ctx = this.context;
@@ -104,7 +218,7 @@
             }
           ctx.color = prevColor;
         },
-        checkNewPos: function (posX, posY, tile) {
+        checkMargin: function (posX, posY, tile) {
           if (
             posX < 0 ||
             posY < 0 ||
@@ -112,48 +226,6 @@
             posY + tile > this.canvas.height
           )
             return false;
-          for (let i = 0; i < this.walls.length; i++) {
-            let { x, y, type } = this.walls[i];
-            x = x * TILE;
-            y = y * TILE;
-            if (
-              (posX + tile > x &&
-                posX + tile <= x + type * TILE &&
-                posY + tile <= y + type * TILE &&
-                posY + tile > y) ||
-              (posX + tile > x &&
-                posX + tile <= x + type * TILE &&
-                posY < y + type * TILE &&
-                posY >= y) ||
-              (posX >= x &&
-                posX < x + type * TILE &&
-                posY < y + type * TILE &&
-                posY >= y) ||
-              (posX > x &&
-                posX < x + type * TILE &&
-                posY + tile < y + type * TILE &&
-                posY + tile > y) ||
-              (posX < x &&
-                posX + tile > x &&
-                posY < y &&
-                posY + tile > y + type * TILE) ||
-              (posX <= x &&
-                posX + tile > x + type * TILE &&
-                posY < y &&
-                posY + tile > y) ||
-              (posX > x &&
-                posX < x + type * TILE &&
-                posY < y &&
-                posY + tile >= y + type * TILE) ||
-              (posX < x &&
-                posX + tile > x + type * TILE &&
-                posY > y &&
-                posY < y + type * TILE)
-            ) {
-              console.log(posX, posY, tile, ">>>", x, y, TILE);
-              return false;
-            }
-          }
           return true;
         },
         start: function () {
@@ -196,7 +268,8 @@
         };
         this.newPos = function () {
           if (
-            !myGameArea.checkNewPos(
+            myGameArea.occupied(this.x + this.speedX, this.y + this.speedY) ||
+            !myGameArea.checkMargin(
               this.x + this.speedX,
               this.y + this.speedY,
               this.tile
