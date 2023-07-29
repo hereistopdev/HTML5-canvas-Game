@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      canvas {
+        border: 1px solid #d3d3d3;
+        background-color: #f1f1f1;
+        /* background-image: url(1.png); */
+      }
+    </style>
+  </head>
+  <body onload="startGame()">
+    <script>
+      var playerTile = 64;
+      var TILE = 32;
+      var movement_speed = 2;
+      var boardwidth = 20;
+      var boardheight = 15;
+      var myGamePiece;
+
+      var TileMap;
+
+      function set_contains(arr, entity) {
+        return arr.indexOf(entity) >= 0;
+      }
+      function set_add(arr, entity) {
+        arr.push(entity);
+      }
+      function set_remove(arr, entity) {
+        arr.splice(arr.indexOf(entity), 1);
+      }
+      function set_clear(arr) {
+        arr.length = 0;
+      }
+      function set_copy(arr, source) {
+        set_clear(arr);
+        for (var n = 0, max = source.length; n < max; n++) arr.push(source[n]);
+      }
+
+      //v => 0: empty, 1: wall;
+      function makeTileMap(w, h, v) {
+        let m = [];
+        for (let i = 0; i < w * h; i++) {
+          m.push(v);
+        }
+        return m;
+      }
+      function TileMapSetTile(tm, w, x, y, v) {
+        tm[y * w + x] = v;
+      }
+      function TileMapGetTile(tm, w, x, y) {
+        return tm[y * w + x];
+      }
+      let map = makeTileMap(boardwidth, boardheight, 0);
+
+      const initTileMap = (w = boardwidth, h = boardheight) => {
+        TileMap = new makeTileMap(w, h, 0);
+        for (let x = 1; x < w - 1; x++) {
+          for (let y = 1; y < h - 1; y++) {
+            if (Math.floor(Math.random() * 100) < 5) {
+              const temp = 1 + Math.floor(Math.random() * 3);
+              console.log(temp);
+              TileMapSetTile(TileMap, w, x, y, temp);
+            }
+          }
+        }
+        return TileMap;
+      };
+
+      function startGame() {
+        myGameArea.start();
+        myGamePiece = new component(TILE, TILE, "red", 0, 0);
+        const tilemap = initTileMap();
+        myGameArea.drawmap(tilemap, boardwidth, boardheight);
+      }
+
+      var myGameArea = {
+        canvas: document.createElement("canvas"),
+        walls: [],
+        drawmap: function (tilemap, w, h) {
+          for (let x = 0; x < w; x++) {
+            for (let y = 0; y < h; y++) {
+              if (tilemap[x * w + y] >= 1) {
+                this.walls.push({
+                  x: x,
+                  y: y,
+                  type: tilemap[x * w + y],
+                });
+              }
+            }
+          }
+        },
+        drawwalls: function () {
+          ctx = this.context;
+          const prevColor = ctx.color;
+          for (let i = 0; i < this.walls.length; i++)
+            if (this.walls[i].type >= 1) {
+              const x = this.walls[i].x;
+              const y = this.walls[i].y;
+              const type = this.walls[i].type;
+              ctx.fillStyle = "black";
+              ctx.fillRect(x * TILE, y * TILE, type * TILE, type * TILE);
+            }
+          ctx.color = prevColor;
+        },
+        checkNewPos: function (posX, posY, tile) {
+          if (
+            posX < 0 ||
+            posY < 0 ||
+            posX + tile > this.canvas.width ||
+            posY + tile > this.canvas.height
+          )
+            return false;
+          for (let i = 0; i < this.walls.length; i++) {
+            let { x, y, type } = this.walls[i];
+            x = x * TILE;
+            y = y * TILE;
+            if (
+              (posX + tile > x &&
+                posX + tile <= x + type * TILE &&
+                posY + tile <= y + type * TILE &&
+                posY + tile > y) ||
+              (posX + tile > x &&
+                posX + tile <= x + type * TILE &&
+                posY < y + type * TILE &&
+                posY >= y) ||
+              (posX >= x &&
+                posX < x + type * TILE &&
+                posY < y + type * TILE &&
+                posY >= y) ||
+              (posX > x &&
+                posX < x + type * TILE &&
+                posY + tile < y + type * TILE &&
+                posY + tile > y) ||
+              (posX < x &&
+                posX + tile > x &&
+                posY < y &&
+                posY + tile > y + type * TILE) ||
+              (posX <= x &&
+                posX + tile > x + type * TILE &&
+                posY < y &&
+                posY + tile > y) ||
+              (posX > x &&
+                posX < x + type * TILE &&
+                posY < y &&
+                posY + tile >= y + type * TILE) ||
+              (posX < x &&
+                posX + tile > x + type * TILE &&
+                posY > y &&
+                posY < y + type * TILE)
+            ) {
+              console.log(posX, posY, tile, ">>>", x, y, TILE);
+              return false;
+            }
+          }
+          return true;
+        },
+        start: function () {
+          this.canvas.width = TILE * boardwidth;
+          this.canvas.height = TILE * boardheight;
+          this.context = this.canvas.getContext("2d");
+          document.body.insertBefore(this.canvas, document.body.childNodes[0]);
+          this.interval = setInterval(updateGameArea, 20);
+          window.addEventListener("keydown", function (e) {
+            myGameArea.keys = myGameArea.keys || [];
+            myGameArea.keys[e.keyCode] = true;
+          });
+          window.addEventListener("keyup", function (e) {
+            myGameArea.keys[e.keyCode] = false;
+          });
+        },
+        clear: function () {
+          this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        },
+      };
+
+      function component(width, height, color, x, y) {
+        this.width = width;
+        this.height = height;
+        this.tile = playerTile;
+        this.speedX = 0;
+        this.speedY = 0;
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.update = function () {
+          ctx = myGameArea.context;
+          ctx.fillStyle = this.color;
+          ctx.fillRect(
+            this.x,
+            this.y,
+            (this.width * this.tile) / 32,
+            (this.height * this.tile) / 32
+          );
+        };
+        this.newPos = function () {
+          if (
+            !myGameArea.checkNewPos(
+              this.x + this.speedX,
+              this.y + this.speedY,
+              this.tile
+            )
+          ) {
+            this.speedX = 0;
+            this.speedY = 0;
+            this.color = "blue";
+          } else {
+            this.color = "red";
+          }
+          this.x += this.speedX;
+          this.y += this.speedY;
+        };
+      }
+
+      function moveup() {
+        myGamePiece.speedY -= movement_speed;
+      }
+
+      function movedown() {
+        myGamePiece.speedY += movement_speed;
+      }
+
+      function moveleft() {
+        myGamePiece.speedX -= movement_speed;
+      }
+
+      function moveright() {
+        myGamePiece.speedX += movement_speed;
+      }
+
+      function stopMove() {
+        myGamePiece.speedX = 0;
+        myGamePiece.speedY = 0;
+      }
+
+      function updateGameArea() {
+        myGameArea.clear();
+        myGameArea.drawwalls();
+        myGamePiece.speedX = 0;
+        myGamePiece.speedY = 0;
+        if (myGameArea.keys && myGameArea.keys[37]) {
+          myGamePiece.speedX = -movement_speed;
+        }
+        if (myGameArea.keys && myGameArea.keys[39]) {
+          myGamePiece.speedX = movement_speed;
+        }
+        if (myGameArea.keys && myGameArea.keys[38]) {
+          myGamePiece.speedY = -movement_speed;
+        }
+        if (myGameArea.keys && myGameArea.keys[40]) {
+          myGamePiece.speedY = movement_speed;
+        }
+        myGamePiece.newPos();
+        myGamePiece.update();
+      }
+
+      function toSmall() {
+        myGamePiece.tile = 32;
+      }
+      function toMedium() {
+        myGamePiece.tile = 64;
+      }
+      function toLarge() {
+        myGamePiece.tile = 96;
+      }
+    </script>
+
+    <button onclick="toSmall()">Small</button>
+    <button onclick="toMedium()">Medium</button>
+    <button onclick="toLarge()">Large</button>
+  </body>
+</html>
